@@ -108,8 +108,8 @@
                 mousedown: function (evt) {
                     if (evt.which === 1) {
                         var d = {
-                            left: evt.pageX,
-                            top: evt.pageY
+                                left: evt.pageX,
+                                top: evt.pageY
                             },
                             startPos = this.imgPos;     // this = widget
                         dragging = true;
@@ -340,13 +340,13 @@
 
         _report: function () {
             if (this.loaded && this.crop)  {
-                var posLeft = this.imgPos.left,
-                    posTop = this.imgPos.top,
+                var posLeft = Math.round(this.imgPos.left),
+                    posTop = Math.round(this.imgPos.top),
                     m = this.margin,
                     f = 1 / (this.scale * this.zoom);
 
-                posLeft = m + (this.imgSize.width - this.previewSize.width) / 2 - posLeft;
-                posTop = m + (this.imgSize.height - this.previewSize.height) / 2 - posTop;
+                posLeft = m + (Math.round(this.imgSize.width) - Math.round(this.previewSize.width)) / 2 - posLeft;
+                posTop = m + (Math.round(this.imgSize.height) - Math.round(this.previewSize.height)) / 2 - posTop;
 
                 this._trigger("change", null, {     // trigger change event
                     aspect: this.options.aspectRatio,
