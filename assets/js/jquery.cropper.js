@@ -85,6 +85,12 @@
                     min: 1,
                     max: 1
                 }));
+
+            // Make sure preview diagonal is not bigger than image diagonal
+            var d = Math.sqrt(Math.pow(this.options.minSize, 2) + Math.pow(this.options.minSize / this.options.aspectRatio, 2));
+            if (this.options.diagonal > d)
+                this.options.diagonal = d;
+
             this._calcPreviewSize();
             this.margin = this.options.margin;
             this._setMargin();
@@ -238,9 +244,9 @@
                     this.crop = false;
                     this._reportNull();
                 }
-                else    {
+                else {
                     maxZoom = scaleMax / scale;
-                    if (maxZoom < this.zoom)    {
+                    if (maxZoom < this.zoom) {
                         this._changeZoom(maxZoom);
                     }
                     this.slider.slider("option", {
