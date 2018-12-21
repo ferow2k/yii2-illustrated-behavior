@@ -67,6 +67,16 @@ class Illustration extends BaseObject   {
     public $allowTooSmall = false;
 
     /**
+     * @var string Behavior for images smaller than target (when allowTooSmall is true).
+     * Possible values are:
+     *   'keep': image is not modified
+     *   'stretch': image is stretched to target size
+     *   'center': image is extended to target size (centered)
+     *   'error': image is rejected
+     */
+    public $tooSmall = 'keep';
+
+    /**
      * @var string
      * Error message for images that are too small to crop. Parameters: original file name, width, and height.
      * If $allowTooSmall is false, this setting is not used.
@@ -108,7 +118,7 @@ class Illustration extends BaseObject   {
             "__{$this->attribute}_crop__",
             "__{$this->attribute}_delete__",
         ];
-        if (! is_numeric($this->aspectRatio)) $r[] = $this->aspectRatio;
+        if (!is_numeric($this->aspectRatio)) $r[] = $this->aspectRatio;
         return $r;
     }
 
@@ -118,7 +128,7 @@ class Illustration extends BaseObject   {
      */
     public function beforeValidate($event)  {
         $file = $this->file = UploadedFile::getInstance($this->_model, "__{$this->attribute}_file__");
-        if ($file && ! $file->hasError) {
+        if ($file && !$file->hasError) {
 
             $asp = $this->propValue('aspectRatio');
 
@@ -136,26 +146,55 @@ class Illustration extends BaseObject   {
             $ww = $imgSize->getWidth();
             $hh = $imgSize->getHeight();
 
-            $error = ! $this->allowTooSmall;
-
             $cropSize = $this->propValue('cropSize');
-            
+            $targetSize = $this->getTargetSize();
+            $imageTooSmall = $ww < $targetSize['width'] || $hh < $targetSize['height'];
+            $error = !$this->allowTooSmall && $imageTooSmall;
+
             // Apply crop, if possible
             if ($crop['w'] > 0 && $crop['h'] > 0)    {
                 $error = $asp > 1 ? ($crop['w'] < $cropSize) : ($crop['h'] < $cropSize);
-                if (! $error) $image->crop(new Point($crop['x'], $crop['y']), new Box($crop['w'], $crop['h']));
+                if (!$error)
+                    $image->crop(new Point($crop['x'], $crop['y']), new Box($crop['w'], $crop['h']));
             }
             else {
                 $asp = $ww / $hh;
-                if (! is_numeric($this->aspectRatio)) $this->_model->{$this->aspectRatio} = $asp;
+                if (!is_numeric($this->aspectRatio)) $this->_model->{$this->aspectRatio} = $asp;
+
+                if ($imageTooSmall){
+                    if ($this->tooSmall == 'stretch') {
+                        $image->resize(new Box($targetSize['width'], $targetSize['height']));
+                    } else if ($this->tooSmall == 'center') {
+                        $newImage = $image->copy();
+                        $image->resize(new Box($targetSize['width'], $targetSize['height']));
+                        $blank = Image::getImagine()->create(new Box($targetSize['width'], $targetSize['height']));
+                        $image->paste($blank, new Point(0, 0));
+                        $image->paste($newImage, new Point(abs(($targetSize['width'] - $ww) / 2), abs(($targetSize['height'] - $hh) / 2)));
+                    }
+                }
             }
 
-            if ($error)    {       // set error in model
+            if ($error){       // set error in model
                 $this->_model->addError($this->attribute,
                     sprintf($this->tooSmallMsg, $file->name, $ww, $hh));
                 $event->isValid = false;
             }
         }
+    }
+
+    public function getTargetSize(){
+        $size = $this->cropSize;
+        $aspect = $this->propValue('aspectRatio');
+
+        if ($aspect > 1.0)  {
+            $wTarget = $size;
+            $hTarget = $size / $aspect;
+        }
+        else {
+            $wTarget = $size * $aspect;
+            $hTarget = $size;
+        }
+        return ['width'=>$wTarget, 'height'=>$hTarget];
     }
 
     /**
@@ -172,7 +211,9 @@ class Illustration extends BaseObject   {
             $ext = strtolower($file->extension);
             if ($ext == 'jpeg') $ext = 'jpg';
 
-            $fileName = $this->_model->{$this->attribute} = $this->randomName() . '.' . $ext;
+            $baseName = $this->randomName();
+            $fileName = $baseName . '.' . $ext;
+            $this->_model->{$this->attribute} = $fileName;
 
             /** @var ImageInterface $image */
             $image = $this->_image;
@@ -182,8 +223,7 @@ class Illustration extends BaseObject   {
             if ($aspect > 1.0)  {
                 $wTarget = $size;
                 $hTarget = $size / $aspect;
-            }
-            else    {
+            } else {
                 $wTarget = $size * $aspect;
                 $hTarget = $size;
             }
@@ -201,8 +241,7 @@ class Illustration extends BaseObject   {
                     $wTarget >>= 1;
                     $hTarget >>= 1;
                 }
-            }
-            else    {
+            } else {
                 if ($size > 0) $this->resize($wTarget, $hTarget);
                 $dir = $this->imgBaseDir;
                 FileHelper::createDirectory($dir);
@@ -233,22 +272,21 @@ class Illustration extends BaseObject   {
     /**
      * Delete image files and clear imgAttribute
      */
-    public function deleteFiles()    {
+    public function deleteFiles() {
         $fileName = $this->_model->{$this->attribute};
         if (! empty($fileName)) {
 
             $size = $this->cropSize;
 
-            if ($this->sizeSteps && $size > 0)    {
+            if ($this->sizeSteps && $size > 0) {
                 $minSize = $size >> ($this->sizeSteps - 1);
-                while ($size >= $minSize)  {
+                while ($size >= $minSize) {
                     $path = $this->imgBaseDir . DIRECTORY_SEPARATOR . $size . DIRECTORY_SEPARATOR . $fileName;
                     if (file_exists($path)) unlink($path);
 
                     $size >>= 1;
                 }
-            }
-            else    {
+            } else {
                 $path = $this->imgBaseDir . DIRECTORY_SEPARATOR . $fileName;
                 if (file_exists($path)) unlink($path);
             }
@@ -257,7 +295,7 @@ class Illustration extends BaseObject   {
         }
     }
 
-    public function getImgHtml($size = 0, $forceSize = true, $options = [])  {
+    public function getImgHtml($size = 0, $forceSize = true, $options = []) {
         $url = $this->getImgSrc($size);
         if (! $url) return $this->owner->noImage;
 
@@ -270,25 +308,24 @@ class Illustration extends BaseObject   {
         return Html::img($url, $options);
     }
 
-    public function getImgSrc($size = 0)    {
+    public function getImgSrc($size = 0) {
         $fName = $this->_model->{$this->attribute};
         if (empty($fName)) return false;
 
         $bUrl = $this->owner->imgRootUrl . "/{$this->attribute}/";
 
         $s = $this->cropSize;
-        if ($this->sizeSteps && $s > 0)    {
-            if ($size == 0)
+        if ($this->sizeSteps && $s > 0) {
+            if ($size == 0) {
                 $url = $bUrl . $s . '/';
-            else    {
+            } else {
                 $imgSize = $s >> ($this->sizeSteps - 1);
                 $step = 0;
                 while ($imgSize < $size && $step < $this->sizeSteps) $imgSize <<= 1;
 
                 $url = $bUrl . $imgSize . '/';
             }
-        }
-        else    {
+        } else {
             $url = $bUrl;
         }
         return $url . $fName;
@@ -298,9 +335,9 @@ class Illustration extends BaseObject   {
         return $this->owner->imgRootDir . DIRECTORY_SEPARATOR . $this->attribute;
     }
 
-    protected function propValue($property)   {
+    protected function propValue($property) {
         $r = $this->{$property};
-        if (! is_numeric($r))   {
+        if (! is_numeric($r)) {
             $r = $this->_model->{$r};
         }
         return $r;
@@ -313,7 +350,7 @@ class Illustration extends BaseObject   {
      * allowing for 2 billion file names.
      */
     protected function randomName() {
-       do {
+        do {
             $r = base_convert(mt_rand(60466176 , mt_getrandmax()), 10, 36);  // 60466176 = 36^5; ensure six characters
         } while ($this->_model->findOne(['like', $this->attribute, $r . '%', false]));  // ensure unique
         return $r;
